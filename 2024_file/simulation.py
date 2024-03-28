@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from functions import *
-
+from policy_simulation import * 
 
 # the following function is to generate the stock price path
 def stock_price_path(S, sigma, T, dt, mu=0):
@@ -29,6 +29,7 @@ def stock_price_path(S, sigma, T, dt, mu=0):
         # GBM formula applied in discrete time steps
         stock_path[i] = stock_path[i-1] * np.exp((mu - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * rand[i-1])
     
+    stock_path = np.array(stock_path)
     return stock_path
 
 ############################################################################################################
@@ -94,28 +95,21 @@ def option_simulation(V, S, T, dt, K, r, sigma_daily):
 
 # the following function is to compute the number of market orders under policy 
 def one_period_trading(policy, t, Q, P, S, dt, A, kappa):
-    # policy: a function that takes in t, Q, P, S and returns the action
+    # policy: a trading policy object 
     # t: current time
     # Q: current inventory (dim: n)
     # P: current price (dim: n)
     # S: current shock (dim: 1)
 
     # get the action
-    action = policy(t, Q, P, S) # dim: 2n
-
-    # the action is a vector of bid and ask for each options 
-    # for each option, we need to calculate the number of market orders 
-    # let the first n be the bid and the second n be the ask
-    n = int(len(action) / 2)
-    bid_spread = action[:n]
-    ask_spread = action[n:]
+    bid_spread, ask_spread = policy.policy_act(t, Q, P, S)
 
     # calculate the number of market orders
     # call the mkt_order function for each option
     # the result is a vector of number of market orders for each option
     # dim: 2n
-    buy_orders = np.array([mkt_order(epsilon, dt, A, kappa).detach().numpy() for epsilon in bid_spread])
-    sell_orders = np.array([mkt_order(epsilon, dt, A, kappa).detach().numpy() for epsilon in ask_spread])
+    buy_orders = np.array([mkt_order(epsilon, dt, A, kappa) for epsilon in bid_spread])
+    sell_orders = np.array([mkt_order(epsilon, dt, A, kappa) for epsilon in ask_spread])
 
     return buy_orders, sell_orders
 
@@ -123,6 +117,7 @@ def one_period_trading(policy, t, Q, P, S, dt, A, kappa):
 
 # the following function is to compute the entire trading path
 def entire_trading(policy, P, S, dt, A, kappa):
+    # policy: a trading policy object
     # P is sequence of option prices (dim: N x n)
     # S is the sequence of stock (dim: N)
     # n means the number of options
