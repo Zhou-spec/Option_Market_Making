@@ -55,58 +55,6 @@ class EuropeanCallOption:
         d2 = self.d2()
         return self.K * self.T * np.exp(-self.r * self.T) * norm.cdf(d2) / 100  # Rho is often represented per 1% change in interest rate
     
-############################################################################################################
-
-# this function is to generate the stock price path
-def stock_price_path(S, sigma, T, dt, mu=0):
-    """
-    Generate a stock price path using Geometric Brownian Motion.
-    
-    :param S: Initial stock price.
-    :param sigma: Daily volatility.
-    :param T: Time of total trading days
-    :param dt: Time step in days.
-    :param mu: Drift (average return), default is 0.
-    :return: A NumPy array representing the stock price path.
-    """
-    # Number of steps
-    N = int(T / dt)
-    # Time scale
-    t = np.linspace(0, T, N)
-    # Generate random normal values
-    rand = np.random.normal(0, 1, N)
-    # Calculate stock price path
-    stock_path = np.zeros(N)
-    stock_path[0] = S
-    
-    for i in range(1, N):
-        # GBM formula applied in discrete time steps
-        stock_path[i] = stock_path[i-1] * np.exp((mu - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * rand[i-1])
-    
-    return stock_path
-
-
-############################################################################################################
-
-# simulate the shock path
-def shock_path(V, T, dt):
-    # V: Cholesky factor of the covariance matrix
-    # T: Time of total trading days
-    # dt: Time step in days.
-
-    # initialize the original shock
-
-    n = V.shape[0]
-    init_shock = np.random.multivariate_normal(np.zeros(n), np.eye(n))
-    # d(shock) = V * d(W)
-    shock = np.zeros((int(T/dt), n))
-    
-    brownian = np.random.multivariate_normal(np.zeros(n), np.eye(n), int(T/dt))
-    shock[0] = np.matmul(V, init_shock)
-    for i in range(1, int(T/dt)):
-        shock[i] = shock[i-1] + np.matmul(V, brownian[i])
-
-    return shock
 
 
 ############################################################################################################
@@ -121,7 +69,8 @@ def mkt_order(epsilon, dt, A, kappa):
     return np.random.poisson(A * np.exp(-kappa * epsilon) * dt)
 
 
-############################################################################################################
+
+
 
     
     
