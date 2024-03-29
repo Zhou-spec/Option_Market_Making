@@ -3,6 +3,20 @@ import torch
 from functions import *
 from policy_simulation import * 
 
+
+############################################################################################################
+'''
+This file contains 5 functions:
+1. stock_price_path(S, sigma, T, dt, mu=0) this is to generate the stock price path
+2. shock_path(V, T, dt) this is to simulate the shock path (not directly used in the main file)
+3. option_simulation(V, S, T, dt, K, r, sigma_daily) this is to compute the simulated option prices, delta, and gamma
+4. one_period_trading(policy, t, Q, P, S, dt, A, kappa) this is to compute the number of market orders under policy (not directly used in the main file)
+5. entire_trading(policy, P, S, dt, A, kappa) this is to compute the entire trading path
+'''
+
+############################################################################################################
+
+
 # the following function is to generate the stock price path
 def stock_price_path(S, sigma, T, dt, mu=0):
     """
