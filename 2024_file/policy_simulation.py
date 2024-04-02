@@ -16,7 +16,9 @@ class TradingPolicy:
         :param A: The constant in the rate function.
         :param kappa: The constant in the rate function.
         """
-        self.ValueNet = ValueNet
+        # if ValueNet is on the GPU, move it to CPU
+        
+        self.ValueNet = ValueNet.to('cpu')  # Move the neural network to the CPU
         self.penalty = penalty
         self.A = A
         self.kappa = kappa
@@ -145,3 +147,23 @@ class TradingPolicy:
                 profits += np.sum((bid_rate[i] * bid_for_options + ask_rate[j] * ask_for_options)) * distribution[i, j]
         
         return profits
+    
+
+    ############################################################################################################
+
+    # the following is the network structure I am going to use for the value network
+    # the value network is a simple feedforward neural network
+
+class Net(torch.nn.Module):
+    def __init__(self, n):
+        super(Net, self).__init__()  # Call superclass constructor
+        self.n = n
+        self.fc1 = torch.nn.Linear(2 + 2 * n, 1024)
+        self.fc2 = torch.nn.Linear(1024, 1024)
+        self.fc3 = torch.nn.Linear(1024, 1)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        x = torch.relu(self.fc3(x))
+        return x
