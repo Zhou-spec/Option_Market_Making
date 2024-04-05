@@ -3,6 +3,7 @@ from functions import *
 from policy_simulation import * 
 import torch
 import torch.optim as optim 
+import random
 
 
 ############################################################################################################
@@ -127,7 +128,7 @@ def one_period_trading(policy, t, Q, P, S, dt, A, kappa):
     buy_orders = np.array([mkt_order(epsilon, dt, A, kappa) for epsilon in bid_spread])
     sell_orders = np.array([mkt_order(epsilon, dt, A, kappa) for epsilon in ask_spread])
 
-    return buy_orders, sell_orders
+    return buy_orders, sell_orders, bid_spread, ask_spread
 
 ############################################################################################################
 
@@ -152,13 +153,56 @@ def entire_trading(policy, P, S, dt, A, kappa):
         curr_P = np.array(P[i])
         curr_S = np.array([S[i]])
 
-        buy_orders, sell_orders = one_period_trading(policy, curr_time, Q, curr_P, curr_S, dt, A, kappa)
+        buy_orders, sell_orders, bid_spread, ask_spread = one_period_trading(policy, curr_time, Q, curr_P, curr_S, dt, A, kappa)
         Q += buy_orders - sell_orders
         inventory_path[i] = Q
         buy_order_path[i] = buy_orders
         sell_order_path[i] = sell_orders
 
+
+
     return inventory_path, buy_order_path, sell_order_path
+
+
+# final_version of entire_trading to calculate the profits
+def entire_trading_final(policy, P, S, dt, A, kappa, phi):
+    # policy: a trading policy object
+    # P is sequence of option prices (dim: N x n)
+    # S is the sequence of stock (dim: N)
+    # n means the number of options
+    # N means the total trading days
+    # return the inventory path, buy order path, and sell order path
+
+    # initialize the inventory
+    Q = np.zeros(P.shape[1])
+
+    inventory_path = np.zeros((P.shape[0], P.shape[1]))
+    buy_order_path = np.zeros((P.shape[0], P.shape[1]))
+    sell_order_path = np.zeros((P.shape[0], P.shape[1]))
+
+    # market making profits
+    market_making_profits = 0
+
+    for i in range(P.shape[0]):
+        curr_time = np.array([i * dt])  
+        curr_P = np.array(P[i])
+        curr_S = np.array([S[i]])
+
+        buy_orders, sell_orders, bid_spread, ask_spread = one_period_trading(policy, curr_time, Q, curr_P, curr_S, dt, A, kappa)
+        Q += buy_orders - sell_orders
+        inventory_path[i] = Q
+        buy_order_path[i] = buy_orders
+        sell_order_path[i] = sell_orders
+
+        # compute the culmulate profits
+        market_making_profits += np.dot(bid_spread, buy_orders) + np.dot(ask_spread, sell_orders)
+        
+    # final inventory value 
+    final_inventory_value = np.sum((inventory_path[-1] * P[-1])**2)
+    reward = market_making_profits - phi * final_inventory_value
+        
+
+    return inventory_path, buy_order_path, sell_order_path, reward
 
 
 
@@ -286,30 +330,49 @@ def value_iteration_one_epoch(new_value_net, policy, paras):
     for i in range(paras.epoch):
         inv, buy, sell = entire_trading(policy, option_price_path, stock_path, paras.dt, paras.A, paras.kappa)
         one_path_loss = martingale_loss(new_value_net, policy, stock_path, option_price_path, delta_path, gamma_path, inv, paras.dt, paras.T, paras.phi)
+        loss += one_path_loss
 
-    loss += one_path_loss
-    return loss
+    return loss / paras.epoch
 
 
 ############################################################################################################
 
 # the following is the final function to get the policy_iteration, and value_estimation 
-def value_estimation(value_net_to_train, policy, paras, device, num_epoch = 10, lr = 0.01):
-    optimizer = optim.Adam(value_net_to_train.parameters(), lr = lr)
+def value_estimation(value_net_to_train, policy, paras, optimizer, train_data, num_epoch = 10, lr = 0.01):
+    loss_path = []
     for i in range(num_epoch):
-        loss = value_iteration_one_epoch(value_net_to_train, policy, paras)
+        loss = 0
+        # randomly sample the training data
+        stock_path = random.choice(train_data.stock_path_repo)
+        option_price_path = random.choice(train_data.option_price_path_repo)
+        delta_path = random.choice(train_data.delta_path_repo)
+        gamma_path = random.choice(train_data.gamma_path_repo)
+
+        
         optimizer.zero_grad()
+
+        for i in range(paras.epoch):
+            inv, buy, sell = entire_trading(policy, option_price_path, stock_path, paras.dt, paras.A, paras.kappa)
+            one_path_loss = martingale_loss(value_net_to_train, policy, stock_path, option_price_path, delta_path, gamma_path, inv, paras.dt, paras.T, paras.phi)
+            loss += one_path_loss
+
+        loss /= paras.epoch
         loss.backward()
         optimizer.step()
         print("loss: ", loss.item())
+        loss_path.append(loss.item())
+
+    return loss_path
 
 
-
+############################################################################################################
+# we are not going to use it
 def policy_iteration(initial_policy, paras, device, num_iter = 5, num_epoch = 5, lr = 0.01):
     
     # this is the current policy (TradingPolicy object)
     curr_policy = initial_policy   
     # define a value_network to be trained
+    n = len(paras.K)
     value_network = Net(n) 
 
     for i in range(num_iter):
@@ -325,8 +388,112 @@ def policy_iteration(initial_policy, paras, device, num_iter = 5, num_epoch = 5,
         curr_policy = TradingPolicy(value_network, paras.gamma, paras.A, paras.kappa, paras.bid_ranges, paras.ask_ranges)
 
     return curr_policy
-    
-    
 
 
     
+
+    ####################################################################################################
+
+# the following function is to compute the reward of the policy
+
+def entire_trading_final(policy, P, S, dt, A, kappa, phi, option_gamma, option_theta, sigma, gamma):
+    # policy: a trading policy object
+    # P is sequence of option prices (dim: N x n)
+    # S is the sequence of stock (dim: N)
+    # n means the number of options
+    # N means the total trading days
+    # return the inventory path, buy order path, and sell order path
+    # option_gamma is the gamma of the option
+    # option_theta is the theta of the option
+    # sigma is stock volatility
+
+    # initialize the inventory
+    Q = np.zeros(P.shape[1])
+
+    inventory_path = np.zeros((P.shape[0], P.shape[1]))
+    buy_order_path = np.zeros((P.shape[0], P.shape[1]))
+    sell_order_path = np.zeros((P.shape[0], P.shape[1]))
+
+    # market making profits
+    market_making_profits = 0
+    option_value = 0
+    policy_entropy_value = 0
+
+    for i in range(P.shape[0]):
+        curr_time = np.array([i * dt])  
+        curr_P = np.array(P[i])
+        curr_S = np.array([S[i]])
+
+        buy_orders, sell_orders, bid_spread, ask_spread = one_period_trading(policy, curr_time, Q, curr_P, curr_S, dt, A, kappa)
+        Q += buy_orders - sell_orders
+        inventory_path[i] = Q
+        buy_order_path[i] = buy_orders
+        sell_order_path[i] = sell_orders
+
+        # compute the culmulate profits
+        market_making_profits += np.dot(bid_spread, buy_orders) + np.dot(ask_spread, sell_orders)
+        
+        # option_theta, and option_gamma is 
+        option_value += np.sum(np.dot(Q, option_gamma[i])) + 0.5 * sigma * np.sum(np.dot(Q, option_theta[i]))
+        
+        # policy entropy
+        policy_entropy_value += policy.policy_entropy(curr_time, Q, curr_P, curr_S)
+        
+    
+    final_inventory_value = -phi * np.sum((inventory_path[-1] * P[-1])**2)
+
+    reward = market_making_profits * dt + option_value * dt + gamma * policy_entropy_value * dt + final_inventory_value
+        
+
+    return inventory_path, buy_order_path, sell_order_path, reward
+
+
+def option_simulation_final(V, S, T, dt, K, time, r, sigma_daily):
+    # options: a list of option objects
+    # V: Cholesky factor of the covariance matrix
+    # S: stock price path
+    # T: Time of total trading days
+    # dt: Time step in days.
+
+    # K is np array of strike prices
+    # time is np array of time to maturity
+    # r is the risk-free rate
+    # sigma_daily is the daily volatility of the underlying asset
+
+    # initialize the option prices, delta, and gamma
+    N = int(T / dt)
+    n = len(K)
+
+    option_prices = np.zeros((N, n))
+    delta = np.zeros((N, n))
+    gamma = np.zeros((N, n))
+    theta = np.zeros((N, n))
+    for i in range(N):
+        for j in range(n):
+            option = EuropeanCallOption(S[i], K[j], time[j] - i * dt, r, sigma_daily)
+            option_prices[i, j] = option.price()
+            delta[i, j] = option.delta()
+            gamma[i, j] = option.gamma()
+            theta[i, j] = option.theta()
+
+    # add shock 
+    shock = shock_path(V, T, dt)
+    option_prices += shock
+
+    return option_prices, delta, gamma, theta
+
+
+def reward_distribution(policy, paras, num_path):
+    # num_path is the number of simulated trading of the current policy we are conducting
+
+    terminal_wealths = [] 
+    inventory_paths = []
+    for i in range(num_path):
+        stock_path = stock_path(paras.S0, paras.sigma, paras.T, paras.dt)
+        option_price, option_delta, option_gamma, option_theta = option_simulation_final(paras.V, stock_path, paras.T, paras.dt, paras.K, paras.time, paras.r, paras.sigma)
+        inv, buy, sell, reward = entire_trading_final(policy, option_price, stock_path, paras.dt, paras.A, paras.kappa, paras.phi, option_gamma, option_theta, paras.sigma, paras.gamma)
+        # after getting the inventory, we can calculate the reward
+        inventory_paths.append(inv)
+        terminal_wealths.append(reward)
+
+    return inventory_paths, terminal_wealths

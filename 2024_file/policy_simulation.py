@@ -1,6 +1,8 @@
 # the policy is quite complicated, we need to first compute the numerator of the pdf given (bid, ask)
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F 
 
 """ 
 This file define a trading policy object for the trading simulation.
@@ -85,7 +87,16 @@ class TradingPolicy:
                 distribution[i, j] = self.policy_numerator(curr_bid, curr_ask, t, Q, P, S)
 
         # apply softmax to the distribution
-        distribution = np.exp(distribution) / np.sum(np.exp(distribution))
+        # overflow maybe a problem here
+        # when encounter overflow, just use the maximum value to subtract
+        shift_distribution = distribution - np.max(distribution)
+        try:
+            distribution = np.exp(shift_distribution) / np.sum(np.exp(shift_distribution))
+        except OverflowError:
+            # Directly catch the OverflowError to be more explicit
+            max_index = np.argmax(distribution)
+            distribution = np.zeros_like(distribution)
+            distribution[max_index] = 1
 
         return distribution
     
@@ -116,10 +127,9 @@ class TradingPolicy:
 
     # This is for the computation of the loss function
     def policy_entropy(self, t, Q, P, S):
-        # this function is to compute the entropy of the policy
-        
         distribution = self.policy_distribution(t, Q, P, S)
-        entropy = -np.sum(distribution * np.log(distribution))
+        # Compute entropy
+        entropy = -np.sum(distribution * np.log(distribution), where=(distribution!=0))
         entropy = entropy * self.penalty
 
         return entropy
@@ -154,16 +164,20 @@ class TradingPolicy:
     # the following is the network structure I am going to use for the value network
     # the value network is a simple feedforward neural network
 
+
 class Net(torch.nn.Module):
     def __init__(self, n):
         super(Net, self).__init__()  # Call superclass constructor
         self.n = n
-        self.fc1 = torch.nn.Linear(2 + 2 * n, 1024)
-        self.fc2 = torch.nn.Linear(1024, 1024)
-        self.fc3 = torch.nn.Linear(1024, 1)
+        self.fc1 = torch.nn.Linear(2 + 2 * n, 128)
+        self.fc2 = torch.nn.Linear(128, 1024)
+        self.fc3 = torch.nn.Linear(1024, 256)
+        self.fc4 = torch.nn.Linear(256, 1)
+
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         x = torch.relu(self.fc3(x))
+        x = self.fc4(x)
         return x
