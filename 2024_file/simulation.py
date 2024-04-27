@@ -442,7 +442,7 @@ def entire_trading_final(policy, P, S, dt, A, kappa, phi, option_gamma, option_t
     
     final_inventory_value = -phi * np.sum((inventory_path[-1] * P[-1])**2)
 
-    reward = market_making_profits * dt + option_value * dt + gamma * policy_entropy_value * dt + final_inventory_value
+    reward = market_making_profits + option_value * dt + gamma * policy_entropy_value * dt
         
 
     return inventory_path, buy_order_path, sell_order_path, reward
